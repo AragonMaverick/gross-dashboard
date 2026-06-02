@@ -1,0 +1,245 @@
+{
+  "name": "Gross Dashboard — Data Sync",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "@n8n/n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "folderId": "FOLDER_ID_HERE",
+        "returnAll": true,
+        "filters": {}
+      },
+      "id": "sharepoint-list",
+      "name": "SharePoint: List Files",
+      "type": "@n8n/n8n-nodes-base.sharepoint",
+      "typeVersion": 1,
+      "position": [250, 0],
+      "credentials": {
+        "sharepointOAuth2Api": {
+          "id": "CREDENTIAL_ID_HERE",
+          "name": "SharePoint Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "explode",
+        "options": {}
+      },
+      "id": "split-files",
+      "name": "Split Files",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [500, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract file type from filename\nconst name = $json.name || '';\nlet file_type = 'unknown';\nif (name.includes('projekte.csv')) file_type = 'projekte';\nelse if (name.includes('stundenauswertung')) file_type = 'stundenauswertung';\nelse if (name.includes('termineprojekt')) file_type = 'termine_projekt';\nelse if (name.includes('terminefreiertermin')) file_type = 'termine_freier';\nelse if (name.includes('terminestoerung')) file_type = 'termine_stoerung';\nelse if (name.includes('termineurlaub')) file_type = 'termine_urlaub';\nelse if (name.includes('projektsummen')) file_type = 'projektsummen';\nreturn { file_type: file_type, file: $json };",
+        "outputKey": "routed",
+        "options": {}
+      },
+      "id": "route-files",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 0]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{$json.id}}",
+        "options": {}
+      },
+      "id": "sharepoint-download",
+      "name": "SharePoint: Download",
+      "type": "@n8n/n8n-nodes-base.sharepoint",
+      "typeVersion": 1,
+      "position": [1000, 0],
+      "credentials": {
+        "sharepointOAuth2Api": {
+          "id": "CREDENTIAL_ID_HERE",
+          "name": "SharePoint Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse CSV with proper multi-line handling\nconst csvContent = $json.content.toString('utf-8');\nconst rows = [];\nlet currentRow = [];\nlet inQuotedField = false;\nlet currentField = '';\n\nfor (let i = 0; i < csvContent.length; i++) {\n  const char = csvContent[i];\n  \n  if (char === '\"') {\n    inQuotedField = !inQuotedField;\n  } else if (char === ';' && !inQuotedField) {\n    currentRow.push(currentField);\n    currentField = '';\n  } else {\n    currentField += char;\n  }\n  \n  if (char === '\\n' && !inQuotedField) {\n    currentRow.push(currentField);\n    if (currentRow.length > 0) {\n      rows.push(currentRow);\n    }\n    currentRow = [];\n    currentField = '';\n  }\n}\n\nif (currentField || currentRow.length > 0) {\n  currentRow.push(currentField);\n  if (currentRow.length > 0) {\n    rows.push(currentRow);\n  }\n}\n\nif (rows.length > 0) {\n  const header = rows[0].map(h => h.trim());\n  const data = rows.slice(1).filter(r => r.some(c => c && c.trim())).map(row => {\n    const obj = {};\n    header.forEach((h, i) => {\n      obj[h] = (row[i] || '').trim();\n    });\n    return obj;\n  });\n  return { data: data, file_type: $json.file_type, rows: data.length };\n}\nreturn { data: [], file_type: $json.file_type, rows: 0 };",
+        "outputKey": "parsed",
+        "options": {}
+      },
+      "id": "parse-csv",
+      "name": "Parse CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Excel file\nconst xlsx = require('xlsx');\nconst workbook = xlsx.read($json.content, { type: 'buffer' });\nconst sheetName = workbook.SheetNames[0];\nconst data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);\nreturn { data: data, file_type: $json.file_type, rows: data.length };",
+        "outputKey": "parsed",
+        "options": {}
+      },
+      "id": "parse-excel",
+      "name": "Parse Excel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Clean and convert data for PostgreSQL\nconst rows = $json.data || [];\nconst file_type = $json.file_type;\n\nconst parseGermanNumber = (val) => {\n  if (!val || val === '') return null;\n  const cleaned = String(val).replace(/\\./g, '').replace(',', '.');\n  return parseFloat(cleaned);\n};\n\nconst parseDate = (val) => {\n  if (!val || val === '') return null;\n  const parts = String(val).split(/[.\\s/-]/);\n  if (parts.length >= 3) {\n    const d = new Date(parts[2], parts[1] - 1, parts[0]);\n    return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];\n  }\n  return null;\n};\n\nconst parseDateTime = (val) => {\n  if (!val || val === '') return null;\n  const match = String(val).match(/(\\d{2})\\.(\\d{2})\\.(\\d{4})\\s+(\\d{2}:\\d{2})/);\n  if (match) {\n    const d = new Date(match[3], match[2] - 1, match[1], match[4].split(':')[0], match[4].split(':')[1]);\n    return isNaN(d.getTime()) ? null : d.toISOString();\n  }\n  return null;\n};\n\nconst clean = rows.map(row => {\n  const cleaned = {};\n  Object.keys(row).forEach(key => {\n    const val = row[key];\n    if (typeof val === 'number') {\n      cleaned[key] = val;\n    } else if (typeof val === 'string') {\n      const trimmed = val.trim();\n      if (trimmed === '' || trimmed === '-' || trimmed === 'NaN') {\n        cleaned[key] = null;\n      } else {\n        cleaned[key] = trimmed;\n      }\n    } else {\n      cleaned[key] = val;\n    }\n  });\n  return cleaned;\n});\n\nreturn { data: clean, file_type: file_type, rows: clean.length };",
+        "outputKey": "cleaned",
+        "options": {}
+      },
+      "id": "clean-data",
+      "name": "Clean Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{\n  const file_type = $json.file_type;\n  const data = $json.data || [];\n  \n  if (file_type === 'projekte') {\n    return `INSERT INTO projekte (belegnummer, bezeichnung, empfaenger, empfaengeranschrift, bearbeiter, status, benutzer, bereich, erstell_info, ansprechpartner, externe_nummer, projektleiter, auftraggeber, gewerk, kundendienst, standort, berechnung_projekakte, variante, kst_ktr) \n    VALUES ` + data.map((r, i) => {` + `('${r.belegnummer}', '${r.bezeichnung}', '${r.empfaenger}', '${r.empfaengeranschrift}', '${r.bearbeiter}', '${r.status}', '${r.benutzer}', '${r.bereich}', '${r.erstell_info}', '${r.ansprechpartner}', '${r.externe_nummer}', '${r.projektleiter}', '${r.auftraggeber}', '${r.gewerk}', '${r.kundendienst}', '${r.standort}', '${r.berechnung_projekakte}', '${r.variante}', '${r.kst_ktr}')`).join(', ') + `\n    ON CONFLICT (belegnummer) DO UPDATE SET\n      bezeichnung = EXCLUDED.bezeichnung,\n      empfaenger = EXCLUDED.empfaenger,\n      status = EXCLUDED.status,\n      bearbeiter = EXCLUDED.bearbeiter,\n      benutzer = EXCLUDED.benutzer,\n      bereich = EXCLUDED.bereich,\n      erstell_info = EXCLUDED.erstell_info,\n      ansprechpartner = EXCLUDED.ansprechpartner,\n      externe_nummer = EXCLUDED.externe_nummer,\n      projektleiter = EXCLUDED.projektleiter,\n      auftraggeber = EXCLUDED.auftraggeber,\n      gewerk = EXCLUDED.gewerk,\n      kundendienst = EXCLUDED.kundendienst,\n      standort = EXCLUDED.standort,\n      berechnung_projekakte = EXCLUDED.berechnung_projekakte,\n      variante = EXCLUDED.variante,\n      kst_ktr = EXCLUDED.kst_ktr`;\n  }\n  \n  if (file_type === 'stundenauswertung') {\n    return `INSERT INTO stundenauswertung (tag, wochentag, von_zeit, bis_zeit, ende_datum, personalnummer, arbeitszeit, pausenzeit, lohnart_bezzeichnung, lohnart_nr, produktivitaet, satz, summe_satz, faktor, summe_faktor, gesamtwert, betrag, aufschlag, aufschlag_summe, kst_ktr, vorgang_projektakte, vorgangsnummer, vorgang_projekttyp, buchungskategorie, meldungstyp, meldungstext, bemerkung, kundennummer, menge, prozent, gerat) \n    VALUES ` + data.map((r, i) => {` + `(${r.tag}, '${r.wochentag}', '${r.von_zeit}', '${r.bis_zeit}', '${r.ende_datum}', '${r.personalnummer}', ${r.arbeitszeit}, ${r.pausenzeit}, '${r.lohnart_bezzeichnung}', '${r.lohnart_nr}', '${r.produktivitaet}', ${r.satz}, ${r.summe_satz}, ${r.faktor}, ${r.summe_faktor}, ${r.gesamtwert}, ${r.betrag}, '${r.aufschlag}', ${r.aufschlag_summe}, '${r.kst_ktr}', '${r.vorgang_projektakte}', '${r.vorgangsnummer}', '${r.vorgang_projekttyp}', '${r.buchungskategorie}', '${r.meldungstyp}', '${r.meldungstext}', '${r.bemerkung}', '${r.kundennummer}', ${r.menge}, ${r.prozent}, '${r.gerat}')`).join(', ') + `\n    ON CONFLICT (personalnummer, tag, lohnart_nr, kst_ktr, COALESCE(summe_faktor, 0)) DO UPDATE SET\n      wochentag = EXCLUDED.wochentag,\n      von_zeit = EXCLUDED.von_zeit,\n      bis_zeit = EXCLUDED.bis_zeit,\n      ende_datum = EXCLUDED.ende_datum,\n      arbeitszeit = EXCLUDED.arbeitszeit,\n      pausenzeit = EXCLUDED.pausenzeit,\n      lohnart_bezzeichnung = EXCLUDED.lohnart_bezzeichnung,\n      lohnart_nr = EXCLUDED.lohnart_nr,\n      produktivitaet = EXCLUDED.produktivitaet,\n      satz = EXCLUDED.satz,\n      summe_satz = EXCLUDED.summe_satz,\n      faktor = EXCLUDED.faktor,\n      summe_faktor = EXCLUDED.summe_faktor,\n      gesamtwert = EXCLUDED.gesamtwert,\n      betrag = EXCLUDED.betrag,\n      aufschlag = EXCLUDED.aufschlag,\n      aufschlag_summe = EXCLUDED.aufschlag_summe,\n      kst_ktr = EXCLUDED.kst_ktr,\n      vorgang_projektakte = EXCLUDED.vorgang_projektakte,\n      vorgangsnummer = EXCLUDED.vorgangsnummer,\n      vorgang_projekttyp = EXCLUDED.vorgang_projekttyp,\n      buchungskategorie = EXCLUDED.buchungskategorie,\n      meldungstyp = EXCLUDED.meldungstyp,\n      meldungstext = EXCLUDED.meldungstext,\n      bemerkung = EXCLUDED.bemerkung,\n      kundennummer = EXCLUDED.kundennummer,\n      menge = EXCLUDED.menge,\n      prozent = EXCLUDED.prozent,\n      gerat = EXCLUDED.gerat`;\n  }\n  \n  if (file_type.startsWith('termine')) {\n    return `INSERT INTO termine (terminbezeichnung, terminbeschreibung, von, bis, status, dauer, fix, geschaeftspartner, einsatzort, vorgang_projekt_bezeichnung, vorgang_projekt_nummer, vorgang_projekt_typ) \n    VALUES ` + data.map((r, i) => {` + `('${r.terminbezeichnung}', '${r.terminbeschreibung}', '${r.von}', '${r.bis}', '${r.status}', '${r.dauer}', ${r.fix}, '${r.geschaeftspartner}', '${r.einsatzort}', '${r.vorgang_projekt_bezeichnung}', '${r.vorgang_projekt_nummer}', '${r.vorgang_projekt_typ}')`).join(', ') + `\n    ON CONFLICT (von, vorgang_projekt_nummer) DO UPDATE SET\n      terminbezeichnung = EXCLUDED.terminbezeichnung,\n      terminbeschreibung = EXCLUDED.terminbeschreibung,\n      bis = EXCLUDED.bis,\n      status = EXCLUDED.status,\n      dauer = EXCLUDED.dauer,\n      fix = EXCLUDED.fix,\n      geschaeftspartner = EXCLUDED.geschaeftspartner,\n      einsatzort = EXCLUDED.einsatzort,\n      vorgang_projekt_bezeichnung = EXCLUDED.vorgang_projekt_bezeichnung,\n      vorgang_projekt_nummer = EXCLUDED.vorgang_projekt_nummer,\n      vorgang_projekt_typ = EXCLUDED.vorgang_projekt_typ`;\n  }\n  \n  if (file_type === 'projektsummen') {\n    return `INSERT INTO projektsummen (belegnummer, bezeichnung, projektleiter, auftraggeber, gewerk, baustellenart, projektstart, projektende, kunde, angebote, auftraege, kalk_stunden, kalk_lohnkosten, kalk_lohnkosten_gmk, kalk_materialkosten, kalk_materialkosten_gmk, kalk_fremdleistungen, kalk_fremdleistungen_gmk, kalk_gesamtkosten, kalk_db_euro, kalk_db_prozent, ist_stunden, eingangsrechnungen, lieferscheine, materialkosten, gmk_material, lohnkosten, gmk_lohn, gesamtkosten, delta_gesamtkosten, abschlagsrechnungen, erloese, rechnung_netto, ue_zu_vollkosten, ue_unterfinanzierung, ue_ueberfinanzierung, ergebnis, ergebnis_prozent, status) \n    VALUES ` + data.map((r, i) => {` + `('${r.belegnummer}', '${r.bezeichnung}', '${r.projektleiter}', '${r.auftraggeber}', '${r.gewerk}', '${r.baustellenart}', '${r.projektstart}', '${r.projektende}', '${r.kunde}', ${r.angebote}, ${r.auftraege}, ${r.kalk_stunden}, ${r.kalk_lohnkosten}, ${r.kalk_lohnkosten_gmk}, ${r.kalk_materialkosten}, ${r.kalk_materialkosten_gmk}, ${r.kalk_fremdleistungen}, ${r.kalk_fremdleistungen_gmk}, ${r.kalk_gesamtkosten}, ${r.kalk_db_euro}, ${r.kalk_db_prozent}, ${r.ist_stunden}, ${r.eingangsrechnungen}, ${r.lieferscheine}, ${r.materialkosten}, ${r.gmk_material}, ${r.lohnkosten}, ${r.gmk_lohn}, ${r.gesamtkosten}, ${r.delta_gesamtkosten}, ${r.abschlagsrechnungen}, ${r.erloese}, ${r.rechnung_netto}, ${r.ue_zu_vollkosten}, ${r.ue_unterfinanzierung}, ${r.ue_ueberfinanzierung}, ${r.ergebnis}, ${r.ergebnis_prozent}, '${r.status}')`).join(', ') + `\n    ON CONFLICT (belegnummer) DO UPDATE SET\n      bezeichnung = EXCLUDED.bezeichnung,\n      projektleiter = EXCLUDED.projektleiter,\n      auftraggeber = EXCLUDED.auftraggeber,\n      gewerk = EXCLUDED.gewerk,\n      baustellenart = EXCLUDED.baustellenart,\n      projektstart = EXCLUDED.projektstart,\n      projektende = EXCLUDED.projektende,\n      kunde = EXCLUDED.kunde,\n      angebote = EXCLUDED.angebote,\n      auftraege = EXCLUDED.auftraege,\n      kalk_stunden = EXCLUDED.kalk_stunden,\n      kalk_lohnkosten = EXCLUDED.kalk_lohnkosten,\n      kalk_lohnkosten_gmk = EXCLUDED.kalk_lohnkosten_gmk,\n      kalk_materialkosten = EXCLUDED.kalk_materialkosten,\n      kalk_materialkosten_gmk = EXCLUDED.kalk_materialkosten_gmk,\n      kalk_fremdleistungen = EXCLUDED.kalk_fremdleistungen,\n      kalk_fremdleistungen_gmk = EXCLUDED.kalk_fremdleistungen_gmk,\n      kalk_gesamtkosten = EXCLUDED.kalk_gesamtkosten,\n      kalk_db_euro = EXCLUDED.kalk_db_euro,\n      kalk_db_prozent = EXCLUDED.kalk_db_prozent,\n      ist_stunden = EXCLUDED.ist_stunden,\n      eingangsrechnungen = EXCLUDED.eingangsrechnungen,\n      lieferscheine = EXCLUDED.lieferscheine,\n      materialkosten = EXCLUDED.materialkosten,\n      gmk_material = EXCLUDED.gmk_material,\n      lohnkosten = EXCLUDED.lohnkosten,\n      gmk_lohn = EXCLUDED.gmk_lohn,\n      gesamtkosten = EXCLUDED.gesamtkosten,\n      delta_gesamtkosten = EXCLUDED.delta_gesamtkosten,\n      abschlagsrechnungen = EXCLUDED.abschlagsrechnungen,\n      erloese = EXCLUDED.erloese,\n      rechnung_netto = EXCLUDED.rechnung_netto,\n      ue_zu_vollkosten = EXCLUDED.ue_zu_vollkosten,\n      ue_unterfinanzierung = EXCLUDED.ue_unterfinanzierung,\n      ue_ueberfinanzierung = EXCLUDED.ue_ueberfinanzierung,\n      ergebnis = EXCLUDED.ergebnis,\n      ergebnis_prozent = EXCLUDED.ergebnis_prozent,\n      status = EXCLUDED.status`;\n  }\n  \n  return '';\n}}"
+      },
+      "id": "upsert-postgres",
+      "name": "PostgreSQL: Upsert",
+      "type": "@n8n/n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1750, 0],
+      "credentials": {
+        "postgresApi": {
+          "id": "CREDENTIAL_ID_HERE",
+          "name": "PostgreSQL Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log summary\nconst file_type = $json.file_type;\nconst rows = $json.rows || 0;\nreturn { message: `Processed ${rows} rows for ${file_type}`, file_type: file_type, rows: rows };",
+        "outputKey": "summary",
+        "options": {}
+      },
+      "id": "log-summary",
+      "name": "Log Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "SharePoint: List Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SharePoint: List Files": {
+      "main": [
+        [
+          {
+            "node": "Split Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Files": {
+      "main": [
+        [
+          {
+            "node": "Route by Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Type": {
+      "main": [
+        [
+          {
+            "node": "SharePoint: Download",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SharePoint: Download": {
+      "main": [
+        [
+          {
+            "node": "Parse CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse CSV": {
+      "main": [
+        [
+          {
+            "node": "Clean Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Data": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Upsert": {
+      "main": [
+        [
+          {
+            "node": "Log Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "name": "Gross Dashboard — Data Sync",
+    "timezone": "Europe/Amsterdam",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "executionTimeout": 3600,
+    "retryOnFail": true,
+    "retryWait": 5000,
+    "maxRetryOnFail": 3,
+    "advancedExecutionOptions": {
+      "executePatch": false
+    }
+  },
+  "tags": []
+}

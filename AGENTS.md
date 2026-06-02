@@ -32,7 +32,8 @@ docker exec -it gross_postgres psql -U gross_user -d gross_dashboard  # DB shell
 |--------|---------|
 | `pds export projekte.csv` | Project records (unique key: `belegnummer`) |
 | `pds export stundenauswertung [year].csv` | Time tracking per employee (composite key: `personalnummer + tag + lohnart_nr + kst_ktr + summe_faktor`) |
-| `pds export termine projekt [period].csv` | Appointment scheduling (links to projekte via `Vorgang/Projekt Nummer`) |
+| `pds export termine [type] [period].csv` | Appointment scheduling (links to projekte via `Vorgang/Projekt Nummer`) |
+| `projektsummen_v2_*.xlsx` | Project financial summaries (Excel, 38 columns) |
 
 ## Database schema
 
@@ -41,23 +42,34 @@ projekte (belegnummer PK)
     └── projekte_finanz (FK → projekte.belegnummer)
     ← stundenauswertung.vorgangsnummer (FK → projekte.belegnummer)
     ← termine.vorgang_projekt_nummer (FK → projekte.belegnummer)
+    ← projektsummen.belegnummer (FK → projekte.belegnummer)
 
 mitarbeiter (personalnummer PK)
-    ← stundauswertung.personalnummer (FK)
+    ← stundenauswertung.personalnummer (FK)
 
 views: v_projekt_stunden (hours linked to projects)
+      v_projekt_termine (appointments with employees)
+      v_projekt_finanz_sichten (financials + hours + appointments)
 ```
 
-SQL definitions live in `init/02-projekte.sql` and `init/03-stundenauswertung.sql`.
+SQL definitions live in `init/02-projekte.sql`, `init/03-stundenauswertung.sql`, and `init/04-termine.sql`.
 
 ## Environment
 
 `.env` variables: `POSTGRES_DB`, `DATA_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` — referenced by `docker-compose.yml`.
 
+## n8n Configuration (critical)
+
+- **File access**: Set `N8N_RESTRICT_FILE_ACCESS_TO=/data/files` in `docker-compose.yml` to allow the Read/Write Files node to access mounted folders.
+- **Local folder mount**: `./analyzed:/data/files` in docker-compose.yml mounts the host folder into the container.
+- **n8n workflow**: Located at `workflows/gross-dashboard-sync.json` — imports via n8n UI (File → Import).
+- **Workflow structure**: Manual Trigger → Read/Write Files → Split Files → Route by Type → Parse CSV/Excel → Clean Data → PostgreSQL Upsert → Log Summary.
+- **File type detection**: Route by Type node uses filename patterns (spaces preserved, e.g., `termine projekt` not `termineprojekt`).
+
 ## ERP → n8n → PostgreSQL flow
 
-1. Manual export from PDS ERP → CSV files placed in SharePoint folder
-2. n8n polls daily → downloads files → parses CSV → cleans/converts numbers → upserts PostgreSQL
+1. Manual export from PDS ERP → CSV/Excel files placed in local `analyzed/` folder
+2. n8n (manual trigger) → reads files from `/data/files/` → parses CSV/Excel → cleans/converts numbers → upserts PostgreSQL
 3. Metabase connects to PostgreSQL → dashboards for end users
 
 ## Future: REST API / direct DB access

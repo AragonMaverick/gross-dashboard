@@ -44,8 +44,11 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER:-gross_user}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-gross_secret}
       - N8N_SECURE_COOKIE=false
+      # Allow access to mounted files folder
+      - N8N_RESTRICT_FILE_ACCESS_TO=/data/files
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./analyzed:/data/files
     networks:
       - gross_net
 
