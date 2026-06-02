@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gross_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gross_dashboard}
+      POSTGRES_USER: ${POSTGRES_USER:-gross_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gross_secret}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gross_user}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - gross_net
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: gross_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Europe/Amsterdam
+      - TZ=Europe/Amsterdam
+      # Database connection for n8n's own metadata
+      - DB_TYPE=postgresdb
+       - DB_POSTGRESDB_DATABASE=${DATA_DB:-gross_dashboard}_n8n
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-gross_user}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-gross_secret}
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - gross_net
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: gross_metabase
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: ${DATA_DB:-gross_dashboard}_metabase
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${POSTGRES_USER:-gross_user}
+      MB_DB_PASS: ${POSTGRES_PASSWORD:-gross_secret}
+    volumes:
+      - metabase_data:/metabase-data
+    networks:
+      - gross_net
+
+volumes:
+  pg_data:
+  n8n_data:
+  metabase_data:
+
+networks:
+  gross_net:
+    driver: bridge

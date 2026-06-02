@@ -1,0 +1,23 @@
+# Environment
+.env
+
+# Docker volumes (managed by Docker, but local init scripts are tracked)
+pg_data/
+n8n_data/
+metabase_data/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# n8n credential cache
+.n8n/
+
+# Local data exports (not tracked)
+analyzed/
+samples/
