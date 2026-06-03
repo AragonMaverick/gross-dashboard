@@ -38,8 +38,7 @@ docker exec -it gross_postgres psql -U gross_user -d gross_dashboard  # DB shell
 ## Database schema
 
 ```
-projekte (belegnummer PK)
-    └── projekte_finanz (FK → projekte.belegnummer)
+projekte (belegnummer PK) — 29 columns (id + 28 data columns including financial fields)
     ← stundenauswertung.vorgangsnummer (FK → projekte.belegnummer)
     ← termine.vorgang_projekt_nummer (FK → projekte.belegnummer)
     ← projektsummen.belegnummer (FK → projekte.belegnummer)
@@ -52,7 +51,9 @@ views: v_projekt_stunden (hours linked to projects)
       v_projekt_finanz_sichten (financials + hours + appointments)
 ```
 
-SQL definitions live in `init/02-projekte.sql`, `init/03-stundenauswertung.sql`, and `init/04-termine.sql`.
+SQL definitions in `init/01-databases.sql` through `init/05-projektsummen.sql`.
+
+**Note**: `projekte_finanz` was dropped — all 28 financial CSV columns merged into `projekte` table (columns: `gemeinkostensatz_lohn`, `gemeinkostensatz_material`, `gewaehrleistungsbuergschaft`, `gueltigkeitszeitraum`, `uebertrag_umsatz_handycraft`, `vertragserfueellungsbuergschaften`, `vorauszahlungsbuergschaft`).
 
 ## Environment
 
@@ -60,11 +61,16 @@ SQL definitions live in `init/02-projekte.sql`, `init/03-stundenauswertung.sql`,
 
 ## n8n Configuration (critical)
 
-- **File access**: Set `N8N_RESTRICT_FILE_ACCESS_TO=/data/files` in `docker-compose.yml` to allow the Read/Write Files node to access mounted folders.
-- **Local folder mount**: `./analyzed:/data/files` in docker-compose.yml mounts the host folder into the container.
-- **n8n workflow**: Located at `workflows/gross-dashboard-sync.json` — imports via n8n UI (File → Import).
-- **Workflow structure**: Manual Trigger → Read/Write Files → Split Files → Route by Type → Parse CSV/Excel → Clean Data → PostgreSQL Upsert → Log Summary.
-- **File type detection**: Route by Type node uses filename patterns (spaces preserved, e.g., `termine projekt` not `termineprojekt`).
+- **File access**: Set `N8N_RESTRICT_FILE_ACCESS_TO=/data/files` in `docker-compose.yml` (n8n 2.0+ default is `~/.n8n-files`).
+- **Local folder mount**: `./analyzed:/data/files` in `docker-compose.yml`.
+- **n8n workflow**: `workflows/Gross Dashboard — Data Sync(2).json` — import via n8n UI (File → Import).
+- **Workflow ID**: `N3wubpslwPf7vDjK` (when importing into n8n).
+- **Workflow structure**: Manual Trigger → Split Files → Switch (csv/xlsx) → Extract from File → Add File Type (Code) → Clean Data → 4 Filter nodes → 4 PostgreSQL nodes → Log Summary.
+- **Clean Data node**: `runOnceForEachItem` mode, outputs single objects (not arrays). Uses `$json.data[0]` (single row), returns `{ ...cleaned, file_type }`.
+- **Clean Data output keys**: All keys are **lowercase** (outputKey is `.toLowerCase()`). Matching columns from `matchingColumnsMap` also output lowercase — this is the critical fix for PostgreSQL upserts.
+- **Clean Data matching columns**: `belegnummer, personalnummer, tag, von_zeit, bis_zeit, ende_datum, lohnart_nr, kst_ktr, summe_faktor, vorgangsnummer, vorgang_projekt_nummer`. These map CSV columns (original casing) to lowercase output keys matching PostgreSQL column names.
+- **Upsertprojekte column mapping**: Maps all 27 data columns (belegnummer through `vorauszahlungsbuergschaft`) from Clean Data output. Uses `$json.<fieldname>` (lowercase). Do NOT reference parent nodes (`$('Clean Data').item.json`) — Clean Data already outputs the cleaned row.
+- **File type detection**: Switch node routes by filename patterns (spaces preserved, e.g., `termine projekt` not `termineprojekt`).
 
 ## ERP → n8n → PostgreSQL flow
 

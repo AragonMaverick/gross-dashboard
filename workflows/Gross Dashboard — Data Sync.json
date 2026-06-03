@@ -1,0 +1,509 @@
+{
+  "name": "Gross Dashboard — Data Sync",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        0
+      ],
+      "id": "efa8c0e4-0d04-4636-800d-853751664f37",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/data/files/*",
+        "options": {
+          "dataPropertyName": "=data"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -48,
+        0
+      ],
+      "id": "d43d0c33-905e-4003-bbfc-984f669d572b",
+      "name": "Read/Write Files from Disk",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(item => String(item.json.fileName || '').toLowerCase().includes('projekte'));"
+      },
+      "id": "14626d8c-f560-4770-ac94-256fdee44e01",
+      "name": "Filter projekte files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "fileName",
+        "include": "allOtherFields",
+        "options": {
+          "includeBinary": true
+        }
+      },
+      "id": "ba745382-00e1-4210-b2fe-a9ad707a9f55",
+      "name": "Split Files",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        176,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "encoding": "utf-8",
+          "headerRow": true
+        }
+      },
+      "id": "608a891c-7244-4d1d-97b7-ecdd0bcc1ecf",
+      "name": "Parse projekte CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        624,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parseGermanNumber = (val) => {\n  if (!val || val === '' || val === '-') return null;\n  const cleaned = String(val).replace(/\\./g, '').replace(',', '.');\n  const num = parseFloat(cleaned);\n  return isNaN(num) ? null : num;\n};\n\nconst rows = $input.all();\nreturn rows.map(item => {\n  const r = item.json;\n  const cleaned = {};\n  for (const [key, val] of Object.entries(r)) {\n    const k = key.toLowerCase().replace(/\\s+/g, '_');\n    if (typeof val === 'string') {\n      const trimmed = val.trim();\n      if (trimmed === '' || trimmed === '-' || trimmed === 'NaN') {\n        cleaned[k] = null;\n        continue;\n      }\n    }\n    cleaned[k] = val;\n  }\n  ['gemeinkostensatz_lohn','gemeinkostensatz_material','uebertrag_umsatz_handycraft'].forEach(f => {\n    if (cleaned[f] != null) cleaned[f] = parseGermanNumber(cleaned[f]);\n  });\n  return cleaned;\n});"
+      },
+      "id": "9cb36eb7-1b11-4c58-8b75-120bab6ef4e9",
+      "name": "Clean projekte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "projekte"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ansprechpartner": "={{ $json.ansprechpartner }}",
+            "auftraggeber": "={{ $json.auftraggeber }}",
+            "bearbeiter": "={{ $json.bearbeiter }}",
+            "belegnummer": "={{ $json.belegnummer }}",
+            "benutzer": "={{ $json.benutzer }}",
+            "berechnung_projekakte": "={{ $json.berechnung_projekakte }}",
+            "bereich": "={{ $json.bereich }}",
+            "bezeichnung": "={{ $json.bezeichnung }}",
+            "empfaenger": "={{ $json.empfaenger }}",
+            "empfaengeranschrift": "={{ $json.empfaengeranschrift }}",
+            "erstell_info": "={{ $json.erstell_info }}",
+            "externe_nummer": "={{ $json.externe_nummer }}",
+            "gemeinkostensatz_lohn": "={{ $json.gemeinkostensatz_lohn }}",
+            "gemeinkostensatz_material": "={{ $json.gemeinkostensatz_material }}",
+            "gewaehrleistungsbuergschaft": "={{ $json.gewaehrleistungsbuergschaft }}",
+            "gewerk": "={{ $json.gewerk }}",
+            "gueltigkeitszeitraum": "={{ $json.gueltigkeitszeitraum }}",
+            "kst_ktr": "={{ $json.kst_ktr }}",
+            "kundendienst": "={{ $json.kundendienst }}",
+            "lieferanschrift": "={{ $json.lieferanschrift }}",
+            "projektleiter": "={{ $json.projektleiter }}",
+            "standort": "={{ $json.standort }}",
+            "status": "={{ $json.status }}",
+            "status2": "={{ $json.status2 }}",
+            "uebertrag_umsatz_handycraft": "={{ $json.uebertrag_umsatz_handycraft }}",
+            "variante": "={{ $json.variante }}",
+            "vertragserfueellungsbuergschaften": "={{ $json.vertragserfueellungsbuergschaften }}",
+            "vorauszahlungsbuergschaft": "={{ $json.vorauszahlungsbuergschaft }}"
+          },
+          "matchingColumns": [
+            "belegnummer"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "belegnummer",
+              "displayName": "belegnummer",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bezeichnung",
+              "displayName": "bezeichnung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bereich",
+              "displayName": "bereich",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "gewerk",
+              "displayName": "gewerk",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "auftraggeber",
+              "displayName": "auftraggeber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "standort",
+              "displayName": "standort",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "empfaenger",
+              "displayName": "empfaenger",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "empfaengeranschrift",
+              "displayName": "empfaengeranschrift",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "lieferanschrift",
+              "displayName": "lieferanschrift",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "bearbeiter",
+              "displayName": "bearbeiter",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "benutzer",
+              "displayName": "benutzer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "ansprechpartner",
+              "displayName": "ansprechpartner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "projektleiter",
+              "displayName": "projektleiter",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "kundendienst",
+              "displayName": "kundendienst",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "externe_nummer",
+              "displayName": "externe_nummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "berechnung_projekakte",
+              "displayName": "berechnung_projekakte",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "variante",
+              "displayName": "variante",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "kst_ktr",
+              "displayName": "kst_ktr",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "erstell_info",
+              "displayName": "erstell_info",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "gemeinkostensatz_lohn",
+              "displayName": "gemeinkostensatz_lohn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "gemeinkostensatz_material",
+              "displayName": "gemeinkostensatz_material",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "gewaehrleistungsbuergschaft",
+              "displayName": "gewaehrleistungsbuergschaft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "gueltigkeitszeitraum",
+              "displayName": "gueltigkeitszeitraum",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "uebertrag_umsatz_handycraft",
+              "displayName": "uebertrag_umsatz_handycraft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "vertragserfueellungsbuergschaften",
+              "displayName": "vertragserfueellungsbuergschaften",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "vorauszahlungsbuergschaft",
+              "displayName": "vorauszahlungsbuergschaft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status2",
+              "displayName": "status2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c8364a1a-41ef-4aa1-818a-521f015a4fba",
+      "name": "Upsert projekte",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1072,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Split Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Files": {
+      "main": [
+        [
+          {
+            "node": "Filter projekte files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter projekte files": {
+      "main": [
+        [
+          {
+            "node": "Parse projekte CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse projekte CSV": {
+      "main": [
+        [
+          {
+            "node": "Clean projekte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean projekte": {
+      "main": [
+        [
+          {
+            "node": "Upsert projekte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "ad44a60f-42c5-430d-ba71-96b5fad63a6e",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "caee471891ba4931488b06cb3b25526ff1fb46bcfa298e27a9f236cda4b44e01"
+  },
+  "id": "N3wubpslwPf7vDjK",
+  "tags": []
+}
