@@ -1,0 +1,1057 @@
+{
+  "name": "Gross Dashboard — Data Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "fieldToSplitOut": "fileName",
+        "include": "allOtherFields",
+        "options": {
+          "includeBinary": true
+        }
+      },
+      "id": "2ce19cc4-1d60-46b8-8b05-9e42eb89c15d",
+      "name": "Split Files",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        112,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Clean and convert data for PostgreSQL\nconst rows = $json.data || [];\nconst file_type = $json.file_type;\n\nconst parseGermanNumber = (val) => {\n  if (!val || val === '') return null;\n  const cleaned = String(val).replace(/\\./g, '').replace(',', '.');\n  return parseFloat(cleaned);\n};\n\nconst parseDate = (val) => {\n  if (!val || val === '') return null;\n  const parts = String(val).split(/[.\\s/-]/);\n  if (parts.length >= 3) {\n    const d = new Date(parts[2], parts[1] - 1, parts[0]);\n    return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];\n  }\n  return null;\n};\n\nconst parseDateTime = (val) => {\n  if (!val || val === '') return null;\n  const match = String(val).match(/(\\d{2})\\.(\\d{2})\\.(\\d{4})\\s+(\\d{2}:\\d{2})/);\n  if (match) {\n    const d = new Date(match[3], match[2] - 1, match[1], match[4].split(':')[0], match[4].split(':')[1]);\n    return isNaN(d.getTime()) ? null : d.toISOString();\n  }\n  return null;\n};\n\nconst clean = rows.map(row => {\n  const cleaned = {};\n  Object.keys(row).forEach(key => {\n    const lowercaseKey = key.toLowerCase().replace(/\\s+/g, '_');\n    const val = row[key];\n    if (typeof val === 'number') {\n      cleaned[lowercaseKey] = val;\n    } else if (typeof val === 'string') {\n      const trimmed = val.trim();\n      if (trimmed === '' || trimmed === '-' || trimmed === 'NaN') {\n        cleaned[lowercaseKey] = null;\n      } else {\n        cleaned[lowercaseKey] = trimmed;\n      }\n    } else {\n      cleaned[lowercaseKey] = val;\n    }\n  });\n  return cleaned;\n});\n\nreturn clean.map(row => ({ ...row, file_type: file_type }));"
+      },
+      "id": "b6daff27-af9a-4f98-9bde-5fac45049dab",
+      "name": "Clean Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log summary\nconst file_type = $json.file_type;\nconst rows = $json.rows || 0;\nreturn { message: `Processed ${rows} rows for ${file_type}`, file_type: file_type, rows: rows };"
+      },
+      "id": "5c142a59-c13b-49da-a26b-888efa291a2e",
+      "name": "Log Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        -96
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        -80
+      ],
+      "id": "efa8c0e4-0d04-4636-800d-853751664f37",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/data/files/*",
+        "options": {
+          "dataPropertyName": "=data"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -144,
+        224
+      ],
+      "id": "d43d0c33-905e-4003-bbfc-984f669d572b",
+      "name": "Read/Write Files from Disk",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "encoding": "utf8",
+          "headerRow": true
+        }
+      },
+      "id": "2da8b3a5-ad33-4038-bad4-5be7fe60cdda",
+      "name": "Parse CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        -336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "id": "5c239f6c-d415-4e18-b607-f62fa65b04b9",
+      "name": "Parse Excel",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        544,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.fileExtension }}",
+                    "rightValue": "csv",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "97a0ccc4-2745-4182-bbb5-0c62e0ec8bce"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "59698de4-e504-410a-ba87-62a850689a44",
+                    "leftValue": "={{ $json.fileExtension }}",
+                    "rightValue": "xlsx",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9c3d7df0-1cbe-43db-b315-a978f8e8bbfa",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        336,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const row = $json;\nlet file_type = 'unknown';\nif (row.Belegnummer) file_type = 'projekte';\nelse if (row.Personalnummer) file_type = 'stundenauswertung';\nelse if (row.Vorgang || row['Projekt Nummer']) file_type = 'termine_projekt';\nreturn { data: [row], file_type: file_type, rows: 1 };"
+      },
+      "id": "181e1b25-8a73-47b5-ae0e-8e662e32dafe",
+      "name": "Add CSV File Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        -336
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { data: [$json], file_type: 'projektsummen', rows: 1 };"
+      },
+      "id": "cfe919ba-1dcf-48e4-b8f4-16447b7fb1cf",
+      "name": "Add Excel File Type",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "projekte"
+        },
+        "columns": {
+          "mappingMode": "automaticMapping",
+          "value": {
+            "Belegnummer": {
+              "name": "Belegnummer",
+              "usedForMatching": true
+            }
+          },
+          "matchingColumns": [
+            "Belegnummer"
+          ]
+        },
+        "options": {}
+      },
+      "id": "c8ccf8d7-d87f-4c58-a519-54fab525c4e1",
+      "name": "Upsertprojekte",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        32
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "stundenauswertung"
+        },
+        "columns": {
+          "mappingMode": "automaticMapping",
+          "value": {
+            "Personalnummer": {
+              "name": "Personalnummer",
+              "usedForMatching": true
+            },
+            "Tag": {
+              "name": "Tag",
+              "usedForMatching": true
+            },
+            "LohnartNr": {
+              "name": "LohnartNr",
+              "usedForMatching": true
+            },
+            "Kst_Ktr": {
+              "name": "Kst_Ktr",
+              "usedForMatching": true
+            },
+            "SummeFaktor": {
+              "name": "SummeFaktor",
+              "usedForMatching": true
+            }
+          },
+          "matchingColumns": [
+            "Personalnummer",
+            "Tag",
+            "LohnartNr",
+            "Kst_Ktr",
+            "SummeFaktor"
+          ]
+        },
+        "options": {}
+      },
+      "id": "ead2b726-308c-46c5-aae1-896409d6c34e",
+      "name": "Upsertstundenauswertung",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1776,
+        -144
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "termine"
+        },
+        "columns": {
+          "mappingMode": "automaticMapping",
+          "value": {
+            "Vorgang": {
+              "name": "Vorgang",
+              "usedForMatching": true
+            },
+            "ProjektNummer": {
+              "name": "ProjektNummer",
+              "usedForMatching": true
+            }
+          },
+          "matchingColumns": [
+            "Vorgang",
+            "ProjektNummer"
+          ]
+        },
+        "options": {}
+      },
+      "id": "4e1c8185-96d1-49f7-a6f2-48b9ccb5ed30",
+      "name": "Upserttermine",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1776,
+        -336
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "projektsummen"
+        },
+        "columns": {
+          "mappingMode": "automaticMapping",
+          "value": {},
+          "matchingColumns": [
+            "Belegnummer"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "belegnummer",
+              "displayName": "belegnummer",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "bezeichnung",
+              "displayName": "bezeichnung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "projektleiter",
+              "displayName": "projektleiter",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "auftraggeber",
+              "displayName": "auftraggeber",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "gewerk",
+              "displayName": "gewerk",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "baustellenart",
+              "displayName": "baustellenart",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "projektstart",
+              "displayName": "projektstart",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "projektende",
+              "displayName": "projektende",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kunde",
+              "displayName": "kunde",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "angebote",
+              "displayName": "angebote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "auftraege",
+              "displayName": "auftraege",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_stunden",
+              "displayName": "kalk_stunden",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_lohnkosten",
+              "displayName": "kalk_lohnkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_lohnkosten_gmk",
+              "displayName": "kalk_lohnkosten_gmk",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_materialkosten",
+              "displayName": "kalk_materialkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_materialkosten_gmk",
+              "displayName": "kalk_materialkosten_gmk",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_fremdleistungen",
+              "displayName": "kalk_fremdleistungen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_fremdleistungen_gmk",
+              "displayName": "kalk_fremdleistungen_gmk",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_gesamtkosten",
+              "displayName": "kalk_gesamtkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_db_euro",
+              "displayName": "kalk_db_euro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "kalk_db_prozent",
+              "displayName": "kalk_db_prozent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ist_stunden",
+              "displayName": "ist_stunden",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "eingangsrechnungen",
+              "displayName": "eingangsrechnungen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "lieferscheine",
+              "displayName": "lieferscheine",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "materialkosten",
+              "displayName": "materialkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "gmk_material",
+              "displayName": "gmk_material",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "lohnkosten",
+              "displayName": "lohnkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "gmk_lohn",
+              "displayName": "gmk_lohn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "gesamtkosten",
+              "displayName": "gesamtkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "delta_gesamtkosten",
+              "displayName": "delta_gesamtkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "abschlagsrechnungen",
+              "displayName": "abschlagsrechnungen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "erloese",
+              "displayName": "erloese",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "rechnung_netto",
+              "displayName": "rechnung_netto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ue_zu_vollkosten",
+              "displayName": "ue_zu_vollkosten",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ue_unterfinanzierung",
+              "displayName": "ue_unterfinanzierung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ue_ueberfinanzierung",
+              "displayName": "ue_ueberfinanzierung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ergebnis",
+              "displayName": "ergebnis",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "ergebnis_prozent",
+              "displayName": "ergebnis_prozent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "import_hash",
+              "displayName": "import_hash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": false
+            },
+            {
+              "id": "imported_at",
+              "displayName": "imported_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "4cc1bbf5-0348-484c-ac78-4147ea041923",
+      "name": "Upsertprojektsummen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1792,
+        224
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $json.file_type === 'projekte' ? [$json] : [];"
+      },
+      "id": "22b653ef-cfa3-4519-8dc2-6608fb3fc09c",
+      "name": "Filterprojekte",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $json.file_type === 'stundenauswertung' ? [$json] : [];"
+      },
+      "id": "c248d925-2dde-427b-8726-60c9ed7cb0ef",
+      "name": "Filterstundenauswertung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $json.file_type.startsWith('termine') ? [$json] : [];"
+      },
+      "id": "1f67ec59-0209-461a-89b6-6610eabab4d0",
+      "name": "Filtertermine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $json.file_type === 'projektsummen' ? [$json] : [];"
+      },
+      "id": "bc75820d-7ca4-436c-b614-cb1ee174ff0a",
+      "name": "Filterprojektsummen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        224
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Split Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse CSV": {
+      "main": [
+        [
+          {
+            "node": "Add CSV File Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Excel": {
+      "main": [
+        [
+          {
+            "node": "Add Excel File Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Files": {
+      "main": [
+        [
+          {
+            "node": "Route by Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Type": {
+      "main": [
+        [
+          {
+            "node": "Parse CSV",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Excel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Add CSV File Type": {
+      "main": [
+        [
+          {
+            "node": "Clean Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Excel File Type": {
+      "main": [
+        [
+          {
+            "node": "Clean Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsertprojekte": {
+      "main": [
+        [
+          {
+            "node": "Log Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsertstundenauswertung": {
+      "main": [
+        [
+          {
+            "node": "Log Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upserttermine": {
+      "main": [
+        [
+          {
+            "node": "Log Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsertprojektsummen": {
+      "main": [
+        [
+          {
+            "node": "Log Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Data": {
+      "main": [
+        [
+          {
+            "node": "Filterprojekte",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filterstundenauswertung",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filtertermine",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filterprojektsummen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filterprojekte": {
+      "main": [
+        []
+      ]
+    },
+    "Filterstundenauswertung": {
+      "main": [
+        []
+      ]
+    },
+    "Filtertermine": {
+      "main": [
+        []
+      ]
+    },
+    "Filterprojektsummen": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "56cd6f25-4d01-4a77-8790-a48340e8d3e9",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "caee471891ba4931488b06cb3b25526ff1fb46bcfa298e27a9f236cda4b44e01"
+  },
+  "id": "N3wubpslwPf7vDjK",
+  "tags": []
+}
