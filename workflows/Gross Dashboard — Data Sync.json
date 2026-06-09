@@ -6,8 +6,8 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -272,
-        0
+        -368,
+        96
       ],
       "id": "efa8c0e4-0d04-4636-800d-853751664f37",
       "name": "When clicking ‘Execute workflow’"
@@ -22,8 +22,8 @@
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1.1,
       "position": [
-        -48,
-        0
+        176,
+        96
       ],
       "id": "d43d0c33-905e-4003-bbfc-984f669d572b",
       "name": "Read/Write Files from Disk",
@@ -38,7 +38,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        400,
+        624,
         0
       ]
     },
@@ -55,8 +55,8 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        176,
-        0
+        400,
+        96
       ]
     },
     {
@@ -72,7 +72,7 @@
       "type": "n8n-nodes-base.extractFromFile",
       "typeVersion": 1.1,
       "position": [
-        624,
+        848,
         0
       ]
     },
@@ -85,7 +85,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        848,
+        1072,
         0
       ]
     },
@@ -411,9 +411,620 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        1072,
+        1296,
         0
       ],
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(item => String(item.json.fileName || '').toLowerCase().includes('stundenauswertung'));"
+      },
+      "id": "3aeb8f73-9501-4419-8f92-2028a7a1457e",
+      "name": "Filter stundenauswertung files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        192
+      ],
+      "notes": "Routes stundenauswertung CSV files to their processing pipeline"
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "encoding": "utf-8",
+          "headerRow": true
+        }
+      },
+      "id": "e743b5ac-f004-4aea-b09c-497570ae4ebf",
+      "name": "Parse stundenauswertung CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        848,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parseGermanNumber = (val) => {\n  if (!val || val === '' || val === '-') return null;\n  const cleaned = String(val).replace(/\\./g, '').replace(',', '.');\n  const num = parseFloat(cleaned);\n  return isNaN(num) ? null : num;\n};\n\nconst normalizeColumnName = (name) => {\n  return name\n    .toLowerCase()\n    .trim()\n    .replace(/\\(/g, '_')\n    .replace(/\\)/g, '')\n    .replace(/\\//g, '_')\n    .replace(/-/g, '_')\n    .replace(/\\./g, '_')\n    .replace(/\\s+/g, '_')\n    .replace(/_+/g, '_')\n    .replace(/^_|_$/g, '');\n};\n\nconst matchingColumnsMap = {\n  'Tag': 'tag',\n  'Mitarbeiter': 'mitarbeiter',\n  'Personalnummer': 'personalnummer',\n  'Lohnart Bezeichnung': 'lohnart_bezeichnung',\n  'Lohnart Nr.': 'lohnart_nr',\n  'Produktivität': 'produktivitaet',\n  'Vorgang/Projektakte': 'vorgang_projektakte',\n  'Vorgangsnummer': 'vorgangsnummer',\n  'Vorgang-/Projekttyp': 'vorgang_projekttyp',\n  'Arbeitszeit': 'arbeitszeit',\n  'Pausenzeit': 'pausenzeit',\n  'Satz': 'satz',\n  'Summe Satz': 'summe_satz',\n  'Ende-Datum': 'ende_datum',\n  'Von-Zeit': 'von_zeit',\n  'Bis-Zeit': 'bis_zeit',\n  'Buchungskategorie': 'buchungskategorie',\n  'Meldungstyp': 'meldungstyp',\n  'Meldungstext': 'meldungstext',\n  'KST/KTR': 'kst_ktr',\n  'Bemerkung': 'bemerkung',\n  'Dokumente': 'dokumente',\n  'Aufschlag': 'aufschlag',\n  'Aufschlag Summe': 'aufschlag_summe',\n  'Gesamtwert': 'gesamtwert',\n  'Person': 'person',\n  'Kunden-/Lieferantennummer': 'kunden_lieferantennummer',\n  'Gerät': 'geraet',\n  'Wochentag': 'wochentag',\n  'Betrag': 'betrag',\n  'Prozent': 'prozent',\n  'Faktor': 'faktor',\n  'Summe Faktor': 'summe_faktor',\n  'Menge': 'menge',\n  'Zeitabzug(min)': 'zeitabzugmin',\n  'Tätigkeit': 'tatigkeit'\n};\n\nconst rows = $input.all();\nconst allCleaned = [];\n\nfor (const item of rows) {\n  const r = item.json;\n  const mapped = {};\n  for (const [key, val] of Object.entries(r)) {\n    if (key === '' || key === ' |-') continue;\n    const mappedKey = matchingColumnsMap[key];\n    const k = mappedKey || normalizeColumnName(key);\n    mapped[k] = val;\n  }\n  allCleaned.push(mapped);\n}\n\nlet lastTag = null;\nconst filtered = [];\nfor (const row of allCleaned) {\n  const tagVal = row.tag;\n  const isSubtotal = tagVal && !row.personalnummer;\n  \n  if (isSubtotal) {\n    lastTag = tagVal;\n    continue;\n  }\n  \n  if (!row.tag && lastTag) {\n    row.tag = lastTag;\n  }\n  \n  filtered.push(row);\n}\n\nconst numericFields = ['arbeitszeit','pausenzeit','zeitabzugmin','satz','summe_satz','faktor','summe_faktor','gesamtwert','betrag','aufschlag','aufschlag_summe','menge','prozent'];\nfiltered.forEach(f => {\n  numericFields.forEach(field => {\n    if (f[field] != null) f[field] = parseGermanNumber(f[field]);\n  });\n});\n\nreturn filtered;"
+      },
+      "id": "5fd3b7a2-60f9-43e4-9e82-3df9e1aaafa8",
+      "name": "Clean stundenauswertung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "stundenauswertung",
+          "mode": "list",
+          "cachedResultName": "stundenauswertung"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "arbeitszeit": "={{ $json.arbeitszeit }}",
+            "pausenzeit": "={{ $json.pausenzeit }}",
+            "zeitabzugmin": "={{ $json.zeitabzugmin }}",
+            "satz": "={{ $json.satz }}",
+            "summe_satz": "={{ $json.summe_satz }}",
+            "faktor": "={{ $json.faktor }}",
+            "summe_faktor": "={{ $json.summe_faktor }}",
+            "gesamtwert": "={{ $json.gesamtwert }}",
+            "betrag": "={{ $json.betrag }}",
+            "aufschlag": "={{ $json.aufschlag }}",
+            "aufschlag_summe": "={{ $json.aufschlag_summe }}",
+            "menge": "={{ $json.menge }}",
+            "prozent": "={{ $json.prozent }}",
+            "tag": "={{ $json.tag }}",
+            "wochentag": "={{ $json.wochentag }}",
+            "von_zeit": "={{ $json.von_zeit }}",
+            "bis_zeit": "={{ $json.bis_zeit }}",
+            "dokumente": "={{ $json.dokumente }}",
+            "personalnummer": "={{ $json.personalnummer }}",
+            "ende_datum": "={{ $json.ende_datum }}",
+            "lohnart_bezeichnung": "={{ $json.lohnart_bezeichnung }}",
+            "lohnart_nr": "={{ $json.lohnart_nr }}",
+            "produktivitaet": "={{ $json.produktivitaet }}",
+            "vorgang_projektakte": "={{ $json.vorgang_projektakte }}",
+            "vorgangsnummer": "={{ $json.vorgangsnummer }}",
+            "vorgang_projekttyp": "={{ $json.vorgang_projekttyp }}",
+            "kst_ktr": "={{ $json.kst_ktr }}",
+            "buchungskategorie": "={{ $json.buchungskategorie }}",
+            "meldungstyp": "={{ $json.meldungstyp }}",
+            "meldungstext": "={{ $json.meldungstext }}",
+            "bemerkung": "={{ $json.bemerkung }}",
+            "kunden_lieferantennummer": "={{ $json.kunden_lieferantennummer }}",
+            "mitarbeiter": "={{ $json.mitarbeiter }}",
+            "person": "={{ $json.person }}",
+            "tatigkeit": "={{ $json.tatigkeit }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "tag",
+              "displayName": "tag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "wochentag",
+              "displayName": "wochentag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "von_zeit",
+              "displayName": "von_zeit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "time",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bis_zeit",
+              "displayName": "bis_zeit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "time",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ende_datum",
+              "displayName": "ende_datum",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "personalnummer",
+              "displayName": "personalnummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "arbeitszeit",
+              "displayName": "arbeitszeit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pausenzeit",
+              "displayName": "pausenzeit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "zeitabzugmin",
+              "displayName": "zeitabzugmin",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lohnart_bezeichnung",
+              "displayName": "lohnart_bezeichnung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lohnart_nr",
+              "displayName": "lohnart_nr",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "produktivitaet",
+              "displayName": "produktivitaet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "satz",
+              "displayName": "satz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summe_satz",
+              "displayName": "summe_satz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "faktor",
+              "displayName": "faktor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summe_faktor",
+              "displayName": "summe_faktor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gesamtwert",
+              "displayName": "gesamtwert",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "betrag",
+              "displayName": "betrag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "aufschlag",
+              "displayName": "aufschlag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "aufschlag_summe",
+              "displayName": "aufschlag_summe",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kst_ktr",
+              "displayName": "kst_ktr",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vorgang_projektakte",
+              "displayName": "vorgang_projektakte",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vorgangsnummer",
+              "displayName": "vorgangsnummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vorgang_projekttyp",
+              "displayName": "vorgang_projekttyp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "buchungskategorie",
+              "displayName": "buchungskategorie",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "meldungstyp",
+              "displayName": "meldungstyp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "meldungstext",
+              "displayName": "meldungstext",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bemerkung",
+              "displayName": "bemerkung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kunden_lieferantennummer",
+              "displayName": "kunden_lieferantennummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "menge",
+              "displayName": "menge",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "prozent",
+              "displayName": "prozent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gerat",
+              "displayName": "gerat",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mitarbeiter",
+              "displayName": "mitarbeiter",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "person",
+              "displayName": "person",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tatigkeit",
+              "displayName": "tatigkeit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dokumente",
+              "displayName": "dokumente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1296,
+        192
+      ],
+      "id": "790b728c-b022-43bf-b0f7-10e086d36409",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(item => String(item.json.fileName || '').toLowerCase().includes('termine'));"
+      },
+      "id": "0ee350d9-079e-41da-bb31-cbf96c19855f",
+      "name": "Filter termine files",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "encoding": "latin1",
+          "headerRow": true
+        }
+      },
+      "id": "e72ff4c3-540e-4398-a060-20f3564dfb16",
+      "name": "Parse termine CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        848,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseGermanDateTime(val) {\n  if (!val || val === '' || val === '-') return null;\n  const s = String(val).trim();\n  const m = s.match(/^(\\d{2})\\.(\\d{2})\\.(\\d{4})(?:\\s+(\\d{2}):(\\d{2}))?$/);\n  if (!m) return null;\n  const [, day, month, year, hour, minute] = m;\n  let iso = `${year}-${month}-${day}`;\n  if (hour !== undefined && minute !== undefined) {\n    iso += `T${hour}:${minute}:00`;\n    } else {\n    iso += 'T00:00:00';\n    }\n  return iso;\n}\n\nconst normalizeColumnName = (name) => {\n  return name\n      .toLowerCase()\n      .trim()\n      .replace(/\\u00f6/g, 'oe')\n      .replace(/\\u00e4/g, 'ae')\n      .replace(/\\u00fc/g, 'ue')\n      .replace(/\\u00df/g, 'ss')\n      .replace(/\\//g, '_')\n      .replace(/\\(/g, '')\n      .replace(/\\)/g, '')\n      .replace(/-/g, '_')\n      .replace(/\\./g, '_')\n      .replace(/\\s+/g, '_')\n      .replace(/_+/g, '_')\n      .replace(/^_|_$/g, '');\n};\n\nconst columnMap = {\n    'Terminbezeichnung': 'terminbezeichnung',\n    'Terminbeschreibung': 'terminbeschreibung',\n    'Von': 'von',\n    'Bis': 'bis',\n    'Status': 'status',\n    'Personalnummer': 'personalnummer',\n    'Mitarbeiter': 'mitarbeiter',\n    'Dauer(h:min)': 'dauer',\n    'Fix': 'fix',\n    'Geschäftspartner': 'geschaeftspartner',\n    'Einsatzort': 'einsatzort',\n    'Vorgang/Projekt Bezeichnung': 'vorgang_projekt_bezeichnung',\n    'Vorgang/Projekt Nummer': 'vorgang_projekt_nummer',\n    'Vorgang/Projekt Typ': 'vorgang_projekt_typ'\n};\n\nconst rows = $input.all();\nconst result = [];\n\nfor (const item of rows) {\n  const r = item.json;\n  const mapped = {};\n\n  const fn = String(r.fileName || '').toLowerCase();\n  if (fn.includes('projekt') && !fn.includes('stundenauswertung')) {\n    mapped.file_type = 'projekt';\n    } else if (fn.includes('urlaub')) {\n    mapped.file_type = 'urlaub';\n    } else if (fn.includes('stoerung')) {\n    mapped.file_type = 'stoerung';\n    } else if (fn.includes('freier termin')) {\n    mapped.file_type = 'freier_termin';\n    } else {\n    mapped.file_type = 'unknown';\n    }\n\n  for (const [key, val] of Object.entries(r)) {\n    if (key === '' || key === 'fileName' || key === 'data' || key === 'mimeType') continue;\n    const mappedKey = columnMap[key] || normalizeColumnName(key);\n    const v = typeof val === 'string' ? val.trim() : val;\n\n    if (mappedKey === 'von' || mappedKey === 'bis') {\n      mapped[mappedKey] = parseGermanDateTime(v);\n      } else if (mappedKey === 'fix') {\n      mapped[mappedKey] = v === 'ja' ? true : v === 'nein' ? false : null;\n      } else if (mappedKey === 'personalnummer') {\n      mapped[mappedKey] = v === '<diverse>' ? null : (v === '' || v === '-' ? null : v);\n      } else {\n      mapped[mappedKey] = v === '' || v === '-' ? null : v;\n      }\n    }\n\n  result.push(mapped);\n}\n\nreturn result;"
+      },
+      "id": "39f1dcdd-ebb3-4333-b784-306a86def3a3",
+      "name": "Clean termine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "termine"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "bis": "={{ $json.bis }}",
+            "dauer": "={{ $json.dauer }}",
+            "einsatzort": "={{ $json.einsatzort }}",
+            "file_type": "={{ $json.file_type }}",
+            "fix": "={{ $json.fix }}",
+            "geschaeftspartner": "={{ $json.geschaeftspartner }}",
+            "mitarbeiter": "={{ $json.mitarbeiter }}",
+            "personalnummer": "={{ $json.personalnummer }}",
+            "status": "={{ $json.status }}",
+            "terminbeschreibung": "={{ $json.terminbeschreibung }}",
+            "terminbezeichnung": "={{ $json.terminbezeichnung }}",
+            "von": "={{ $json.von }}",
+            "vorgang_projekt_bezeichnung": "={{ $json.vorgang_projekt_bezeichnung }}",
+            "vorgang_projekt_nummer": "={{ $json.vorgang_projekt_nummer }}",
+            "vorgang_projekt_typ": "={{ $json.vorgang_projekt_typ }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "b74f3595-1aae-496a-a31e-324e9f858dd8",
+      "name": "Upsert termine",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1296,
+        384
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "deleteTable",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "stundenauswertung",
+          "mode": "list",
+          "cachedResultName": "stundenauswertung"
+        },
+        "deleteCommand": "delete",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -192,
+        96
+      ],
+      "id": "deb8b684-a3ac-403d-968a-4f4dc7afbb41",
+      "name": "Truncate stundenauswertung",
+      "credentials": {
+        "postgres": {
+          "id": "xBtK2CvnwB2WQeE4",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "deleteTable",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "termine",
+          "mode": "list",
+          "cachedResultName": "termine"
+        },
+        "deleteCommand": "delete",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        96
+      ],
+      "id": "6a8b0ee0-f066-4302-a420-e562948f3528",
+      "name": "Truncate termine",
       "credentials": {
         "postgres": {
           "id": "xBtK2CvnwB2WQeE4",
@@ -428,7 +1039,7 @@
       "main": [
         [
           {
-            "node": "Read/Write Files from Disk",
+            "node": "Truncate stundenauswertung",
             "type": "main",
             "index": 0
           }
@@ -451,6 +1062,16 @@
         [
           {
             "node": "Filter projekte files",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter stundenauswertung files",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter termine files",
             "type": "main",
             "index": 0
           }
@@ -489,6 +1110,94 @@
           }
         ]
       ]
+    },
+    "Filter stundenauswertung files": {
+      "main": [
+        [
+          {
+            "node": "Parse stundenauswertung CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse stundenauswertung CSV": {
+      "main": [
+        [
+          {
+            "node": "Clean stundenauswertung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean stundenauswertung": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse termine CSV": {
+      "main": [
+        [
+          {
+            "node": "Clean termine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean termine": {
+      "main": [
+        [
+          {
+            "node": "Upsert termine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter termine files": {
+      "main": [
+        [
+          {
+            "node": "Parse termine CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Truncate stundenauswertung": {
+      "main": [
+        [
+          {
+            "node": "Truncate termine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Truncate termine": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -497,7 +1206,7 @@
     "binaryMode": "separate",
     "availableInMCP": true
   },
-  "versionId": "ad44a60f-42c5-430d-ba71-96b5fad63a6e",
+  "versionId": "b5451b94-c67a-4d7e-8f9b-62e3826c79a4",
   "meta": {
     "aiBuilderAssisted": true,
     "builderVariant": "mcp",

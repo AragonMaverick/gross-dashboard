@@ -22,10 +22,10 @@ CREATE TABLE IF NOT EXISTS stundenauswertung (
       -- Time tracking
     arbeitszeit NUMERIC(10,2),            -- Working hours
     pausenzeit NUMERIC(10,2),             -- Break hours
-    zeitabzug_min NUMERIC(10,2),          -- Time deduction in minutes
+     zeitabzugmin NUMERIC(10,2),          -- Time deduction in minutes (from "Zeitabzug(min)")
 
-      -- Wage type
-    lohnart_bezzeichnung TEXT,             -- Description (Arbeitsstunden, Feiertag, Urlaub, Krank, etc.)
+       -- Wage type
+     lohnart_bezeichnung TEXT,             -- Description (Arbeitsstunden, Feiertag, Urlaub, Krank, etc.)
     lohnart_nr TEXT,                      -- Wage type number (110, 205, 300, 400, 461, 462, etc.)
     produktivitaet TEXT,                  -- Productivity flag (Produktiv/Nicht-Produktiv)
 
@@ -50,7 +50,13 @@ CREATE TABLE IF NOT EXISTS stundenauswertung (
     meldungstyp TEXT,                   -- Message type (Fahrt, Beginn, etc.)
     meldungstext TEXT,                  -- Message / location
     bemerkung TEXT,                     -- Freeform notes
-    kundennummer TEXT,                  -- Customer/vendor number
+     kunden_lieferantennummer TEXT,      -- Customer/vendor number (from "Kunden-/Lieferantennummer")
+
+       -- Additional CSV columns
+     mitarbeiter TEXT,                   -- Employee name (from "Mitarbeiter", separate from personalnummer FK)
+     person TEXT,                        -- Person (from "Person")
+     tatigkeit TEXT,                     -- Activity (from "Tätigkeit")
+     dokumente TEXT,                     -- Documents flag (from "Dokumente")
     menge NUMERIC(10,2),               -- Quantity
     prozent NUMERIC(10,2),             -- Percentage
     gerat TEXT,                       -- Device
@@ -67,7 +73,7 @@ ALTER TABLE stundenauswertung
 
 -- Indexes for dashboard queries
 CREATE INDEX IF NOT EXISTS idx_stunde_tag         ON stundenauswertung(tag);
-CREATE INDEX IF NOT EXISTS idx_stunde_lohnart     ON stundenauswertung(lohnart_bezzeichnung);
+CREATE INDEX IF NOT EXISTS idx_stunde_lohnart     ON stundenauswertung(lohnart_bezeichnung);
 CREATE INDEX IF NOT EXISTS idx_stunde_vorgang     ON stundenauswertung(vorgangsnummer);
 CREATE INDEX IF NOT EXISTS idx_stunde_kst         ON stundenauswertung(kst_ktr);
 CREATE INDEX IF NOT EXISTS idx_stunde_pnum_tag    ON stundenauswertung(personalnummer, tag);
